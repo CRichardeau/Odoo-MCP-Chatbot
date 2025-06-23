@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_chatbot_config,access_chatbot_config,model_chatbot_config,base.group_user,1,1,1,1
+access_chatbot_message,access_chatbot_message,model_chatbot_custom_message,base.group_user,1,1,1,1
+access_chatbot_wizard,access_chatbot_wizard,model_chatbot_wizard,base.group_user,1,1,1,1
+access_anthropic_service,access_anthropic_service,model_anthropic_service,base.group_user,1,1,1,1
