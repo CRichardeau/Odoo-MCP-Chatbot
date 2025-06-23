@@ -25,8 +25,8 @@ class ChatbotConfig(models.Model):
     is_active = fields.Boolean(string="Actif", default=True)
     mcp_url = fields.Char(
         string="URL MCP Gradio",
-        default="http://localhost:8080",
-        help="URL du serveur MCP Gradio. Exemple: http://localhost:8080 ou https://votre-serveur.com"
+        default="https://aktraiser-mcp-server-odoo.hf.space",
+        help="URL du serveur MCP Gradio. Configuré par défaut vers votre serveur Hugging Face Spaces."
     )
 
     # Champs informatifs
