@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vue formulaire simple -->
+    <record id="view_chatbot_config_form" model="ir.ui.view">
+        <field name="name">chatbot.config.form</field>
+        <field name="model">chatbot.config</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="test_connection" type="object" string="Test MCP" class="btn-primary"/>
+                    <button name="test_anthropic_direct" type="object" string="Test API" class="btn-secondary"/>
+                    <button name="action_open_chatbot_wizard" type="object" string="Ouvrir Chatbot"
+                            class="btn-success"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="is_active"/>
+                        <field name="anthropic_model"/>
+                        <field name="anthropic_api_key" password="True"/>
+                        <field name="mcp_url"/>
+                    </group>
+                    <group string="Informations de test">
+                        <field name="last_test_date" readonly="1"/>
+                        <field name="last_test_result" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Vue liste simple -->
+    <record id="view_chatbot_config_list" model="ir.ui.view">
+        <field name="name">chatbot.config.list</field>
+        <field name="model">chatbot.config</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="anthropic_model"/>
+                <field name="is_active"/>
+                <field name="last_test_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_chatbot_config" model="ir.actions.act_window">
+        <field name="name">Configuration Chatbot</field>
+        <field name="res_model">chatbot.config</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Action Wizard -->
+    <record id="action_chatbot_wizard" model="ir.actions.act_window">
+        <field name="name">Chatbot MCP</field>
+        <field name="res_model">chatbot.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="menu_chatbot" name="Chatbot MCP" sequence="100" web_icon="mcp_odoo,static/description/menu.png"/>
+    <menuitem id="menu_chatbot_config" name="Configuration" parent="menu_chatbot" action="action_chatbot_config"
+              sequence="10"/>
+    <menuitem id="menu_chatbot_wizard" name="Ouvrir Chatbot" parent="menu_chatbot" action="action_chatbot_wizard"
+              sequence="20"/>
+
+</odoo> 
