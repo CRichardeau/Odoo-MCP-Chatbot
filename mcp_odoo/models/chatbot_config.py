@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
-
-import logging
 from odoo import models, fields, api
 from odoo.exceptions import UserError
+import requests
+import json
+import logging
 
 _logger = logging.getLogger(__name__)
 
-
 class ChatbotConfig(models.Model):
     _name = 'chatbot.config'
-    _description = 'Configuring the MCP Chatbot'
+    _description = 'Configuration du Chatbot MCP'
     _rec_name = 'name'
 
     name = fields.Char(string="Nom", required=True, default="Configuration MCP")
@@ -20,19 +19,19 @@ class ChatbotConfig(models.Model):
         ('claude-3-opus-20240229', 'Claude 3 Opus (Puissant)'),
         ('claude-3-sonnet-20240229', 'Claude 3 Sonnet'),
         ('claude-3-haiku-20240307', 'Claude 3 Haiku'),
-    ], string="Modèle Anthropic", default='claude-3-5-sonnet-20241022',
-        help="Choisissez le modèle Claude approprié. Sonnet 3.5 est recommandé pour un bon équilibre performance/coût.")
+    ], string="Modèle Anthropic", default='claude-3-5-sonnet-20241022', 
+    help="Choisissez le modèle Claude approprié. Sonnet 3.5 est recommandé pour un bon équilibre performance/coût.")
     is_active = fields.Boolean(string="Actif", default=True)
     mcp_url = fields.Char(
-        string="URL MCP Gradio",
+        string="URL MCP Gradio", 
         default="https://aktraiser-mcp-server-odoo.hf.space",
-        help="URL du serveur MCP Gradio. Configuré par défaut vers votre serveur Hugging Face Spaces."
+        help="URL du serveur MCP Gradio. Configuré par défaut vers votre serveur Hugging Face Spaces. Exemple: http://localhost:8080 pour un serveur local"
     )
-
+    
     # Champs informatifs
     last_test_date = fields.Datetime(string="Dernier test", readonly=True)
     last_test_result = fields.Text(string="Résultat du dernier test", readonly=True)
-
+    
     @api.model
     def get_active_config(self):
         """Récupère la configuration active ou la première disponible"""
@@ -40,33 +39,32 @@ class ChatbotConfig(models.Model):
         if not config:
             config = self.search([], limit=1)
         return config
-
+    
     def test_connection(self):
         """Test de connexion MCP réel avec le service Anthropic"""
         self.ensure_one()
-
+        
         if not self.mcp_url:
             raise UserError("Veuillez configurer l'URL MCP Gradio")
-
+        
         if not self.anthropic_api_key:
             raise UserError("Veuillez configurer votre clé API Anthropic")
-
+        
         try:
             # Test avec le service Anthropic réel
             anthropic_service = self.env['anthropic.service']
             test_message = "Test de connexion MCP - récupère les statistiques CRM basiques"
-
+            
             _logger.info(f"Test de connexion MCP vers: {self.mcp_url}")
-
+            
             response = anthropic_service.call_anthropic_api(test_message, self)
-
+            
             # Mettre à jour les informations de test
             self.write({
                 'last_test_date': fields.Datetime.now(),
                 'last_test_result': response[:500] + "..." if len(response) > 500 else response
             })
-            print('\n---test mcp response-->', response)
-
+            
             if response and not response.startswith("KO"):
                 return {
                     'type': 'ir.actions.client',
@@ -87,16 +85,16 @@ class ChatbotConfig(models.Model):
                         'sticky': True,
                     }
                 }
-
+                
         except Exception as e:
             error_msg = str(e)
             _logger.error(f"Erreur lors du test de connexion MCP: {error_msg}")
-
+            
             self.write({
                 'last_test_date': fields.Datetime.now(),
                 'last_test_result': f"Erreur: {error_msg}"
             })
-
+            
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
@@ -106,27 +104,27 @@ class ChatbotConfig(models.Model):
                     'sticky': True,
                 }
             }
-
+    
     def test_anthropic_direct(self):
         """Test d'appel direct Anthropic sans MCP"""
         self.ensure_one()
-
+        
         if not self.anthropic_api_key:
             raise UserError("Veuillez configurer votre clé API Anthropic")
-
+        
         try:
             anthropic_service = self.env['anthropic.service']
             test_message = "Bonjour, ceci est un test de l'API Anthropic. Réponds simplement 'Test réussi' en français."
-
-            # Forcer l'appel direct (sans MCP)
-            temp_mcp_url = self.mcp_url
-            self.mcp_url = False  # Désactiver temporairement MCP
-
-            response = anthropic_service.call_anthropic_direct(test_message, self)
-
-            # Restaurer l'URL MCP
-            self.mcp_url = temp_mcp_url
-
+            
+            # Créer une configuration temporaire sans MCP pour forcer l'appel direct
+            temp_config = {
+                'anthropic_api_key': self.anthropic_api_key,
+                'anthropic_model': self.anthropic_model,
+                'mcp_url': None  # Pas d'URL MCP pour forcer l'appel direct
+            }
+            
+            response = anthropic_service.call_anthropic_api(test_message, temp_config)
+            
             if response and not response.startswith("KO"):
                 return {
                     'type': 'ir.actions.client',
@@ -147,7 +145,7 @@ class ChatbotConfig(models.Model):
                         'sticky': True,
                     }
                 }
-
+                
         except Exception as e:
             _logger.error(f"Erreur lors du test Anthropic direct: {str(e)}")
             return {
@@ -159,7 +157,7 @@ class ChatbotConfig(models.Model):
                     'sticky': True,
                 }
             }
-
+    
     def action_open_chatbot_wizard(self):
         """Ouvrir le wizard de chatbot avec cette configuration"""
         self.ensure_one()
@@ -175,7 +173,7 @@ class ChatbotConfig(models.Model):
                 'default_mcp_url': self.mcp_url,
             }
         }
-
+    
     @api.constrains('anthropic_api_key')
     def _check_api_key_format(self):
         """Validation basique du format de la clé API"""
@@ -184,8 +182,8 @@ class ChatbotConfig(models.Model):
                 if not record.anthropic_api_key.startswith('sk-ant-'):
                     raise UserError("La clé API Anthropic doit commencer par 'sk-ant-'")
                 if len(record.anthropic_api_key) < 50:
-                    raise UserError("La clé API Anthropic doit comporter au moins 51 caractères.")
-
+                    raise UserError("La clé API Anthropic semble trop courte")
+    
     @api.constrains('is_active')
     def _check_single_active_config(self):
         """S'assurer qu'il n'y a qu'une seule configuration active"""
@@ -193,7 +191,7 @@ class ChatbotConfig(models.Model):
             other_active = self.search([('is_active', '=', True), ('id', '!=', self.id)])
             if other_active:
                 other_active.write({'is_active': False})
-
+    
     def name_get(self):
         """Affichage personnalisé du nom"""
         result = []
@@ -203,12 +201,9 @@ class ChatbotConfig(models.Model):
                 name = f"🟢 {name}"
             else:
                 name = f"⚪ {name}"
-
+            
             if record.mcp_url:
                 name += " (MCP)"
-
+            
             result.append((record.id, name))
-        return result
-
-    def _valid_field_parameter(self, field, name):
-        return name in ['password'] or super()._valid_field_parameter(field, name)
+        return result 
