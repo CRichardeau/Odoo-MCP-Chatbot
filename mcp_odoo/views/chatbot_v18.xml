@@ -9,8 +9,7 @@
                 <header>
                     <button name="test_connection" type="object" string="Test MCP" class="btn-primary"/>
                     <button name="test_anthropic_direct" type="object" string="Test API" class="btn-secondary"/>
-                    <button name="action_open_chatbot_wizard" type="object" string="Ouvrir Chatbot"
-                            class="btn-success"/>
+                    <button name="action_open_chatbot_wizard" type="object" string="Ouvrir Chatbot" class="btn-success"/>
                 </header>
                 <sheet>
                     <group>
@@ -59,10 +58,8 @@
     </record>
 
     <!-- Menu -->
-    <menuitem id="menu_chatbot" name="Chatbot MCP" sequence="100" web_icon="mcp_odoo,static/description/menu.png"/>
-    <menuitem id="menu_chatbot_config" name="Configuration" parent="menu_chatbot" action="action_chatbot_config"
-              sequence="10"/>
-    <menuitem id="menu_chatbot_wizard" name="Ouvrir Chatbot" parent="menu_chatbot" action="action_chatbot_wizard"
-              sequence="20"/>
+    <menuitem id="menu_chatbot" name="Chatbot MCP" sequence="100"/>
+    <menuitem id="menu_chatbot_config" name="Configuration" parent="menu_chatbot" action="action_chatbot_config" sequence="10"/>
+    <menuitem id="menu_chatbot_wizard" name="Ouvrir Chatbot" parent="menu_chatbot" action="action_chatbot_wizard" sequence="20"/>
 
 </odoo> 
