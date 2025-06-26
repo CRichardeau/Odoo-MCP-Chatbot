@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vue liste des messages -->
+    <record id="view_chatbot_message_list" model="ir.ui.view">
+        <field name="name">chatbot.message.list</field>
+        <field name="model">chatbot_custom.message</field>
+        <field name="arch" type="xml">
+            <list string="Messages Chatbot">
+                <field name="timestamp"/>
+                <field name="user_input"/>
+                <field name="bot_response"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Vue formulaire des messages -->
+    <record id="view_chatbot_message_form" model="ir.ui.view">
+        <field name="name">chatbot.message.form</field>
+        <field name="model">chatbot_custom.message</field>
+        <field name="arch" type="xml">
+            <form string="Message Chatbot">
+                <sheet>
+                    <group>
+                        <field name="timestamp"/>
+                        <field name="user_input"/>
+                        <field name="bot_response"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action pour les messages -->
+    <record id="action_chatbot_messages" model="ir.actions.act_window">
+        <field name="name">Messages Chatbot</field>
+        <field name="res_model">chatbot_custom.message</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{}</field>
+    </record>
+
+    <!-- Action pour ouvrir la page de test -->
+    <record id="action_chatbot_test" model="ir.actions.act_url">
+        <field name="name">Test Chatbot</field>
+        <field name="url">/chatbot/test</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Ajout des menus -->
+    <menuitem id="menu_chatbot_messages" name="Messages" parent="menu_chatbot" action="action_chatbot_messages" sequence="20"/>
+    <menuitem id="menu_chatbot_test" name="Test Chatbot" parent="menu_chatbot" action="action_chatbot_test" sequence="30"/>
+
+</odoo> 
