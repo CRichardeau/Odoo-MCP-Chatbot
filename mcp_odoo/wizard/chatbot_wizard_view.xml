@@ -38,14 +38,14 @@
                                         </div>
                                         
                                         <!-- Message utilisateur précédent -->
-                                        <div class="chat-message user-message" invisible="not previous_user_message or not bot_response">
-                                            <div class="message-bubble">
-                                                <field name="previous_user_message" readonly="1" nolabel="1"/>
-                                                <div class="timestamp">
-                                                    <small class="text-muted">Vous</small>
-                                                </div>
-                                            </div>
-                                        </div>
+<!--                                        <div class="chat-message user-message" invisible="not previous_user_message or not bot_response">-->
+<!--                                            <div class="message-bubble">-->
+<!--                                                <field name="previous_user_message" readonly="1" nolabel="1"/>-->
+<!--                                                <div class="timestamp">-->
+<!--                                                    <small class="text-muted">Vous</small>-->
+<!--                                                </div>-->
+<!--                                            </div>-->
+<!--                                        </div>-->
                                         
                                         <!-- Réponse du bot -->
                                         <div class="chat-message bot-message" invisible="not bot_response">
@@ -85,7 +85,7 @@
                     
                     <!-- Champs invisibles pour la logique -->
                     <field name="config_id" invisible="1"/>
-                    <field name="previous_user_message" invisible="1"/>
+<!--                    <field name="previous_user_message" invisible="1"/>-->
                 </sheet>
                 
                 <!-- Footer personnalisé pour masquer les boutons par défaut -->
