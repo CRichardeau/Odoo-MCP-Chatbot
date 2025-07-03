@@ -17,7 +17,7 @@ Lesser General Public License, Version 3 (LGPL v3).
 
 Company
 -------
-* `CHEF PIXEL INDIA PVT LTD <https://chef-pixel.fr/>`__
+* `CHEF PIXEL <https://chef-pixel.fr/>`__
 
 Bug Tracker
 -----------
