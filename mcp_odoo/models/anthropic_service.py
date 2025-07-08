@@ -17,7 +17,7 @@ class AnthropicService(models.AbstractModel):
     # Constantes optimisées
     ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
     DEFAULT_MODEL = 'claude-3-5-sonnet-20241022'
-    DEFAULT_MAX_TOKENS = 1000
+    DEFAULT_MAX_TOKENS = 2000  # Augmenté de 1000 à 2000
     MCP_TIMEOUT = 35  # Réduit de 25 à 15s
     DIRECT_TIMEOUT = 15  # Augmenté de 5 à 15s pour éviter les timeouts
     
@@ -76,6 +76,11 @@ class AnthropicService(models.AbstractModel):
                 _logger.info("Requête simple détectée, utilisation d'Anthropic direct")
                 use_mcp = False
             
+            # Détecter si c'est une requête complexe de données (leads, CRM, etc.)
+            if self._is_data_query(user_input):
+                fast_mode = False  # Forcer le mode complet pour les requêtes de données
+                _logger.info("Requête de données détectée, utilisation du mode complet")
+            
             # Appel optimisé selon le type
             if use_mcp:
                 _logger.info("Mode MCP Connector")
@@ -105,6 +110,23 @@ class AnthropicService(models.AbstractModel):
         # Seules les vraies salutations basiques sont simples
         # Les questions sur les capacités ('que peux-tu faire', 'aide', etc.) doivent utiliser MCP
         return any(pattern in user_lower for pattern in simple_patterns) and len(user_input.strip()) < 20
+    
+    @api.model
+    def _is_data_query(self, user_input):
+        """Détecte les requêtes qui nécessitent l'accès aux données Odoo"""
+        data_patterns = [
+            'lead', 'leads', 'prospect', 'prospects',
+            'client', 'clients', 'customer', 'customers',
+            'vente', 'ventes', 'sale', 'sales', 
+            'commande', 'commandes', 'order', 'orders',
+            'facture', 'factures', 'invoice', 'invoices',
+            'liste', 'lister', 'list', 'show', 'affiche', 'afficher',
+            'statistique', 'stats', 'résumé', 'summary',
+            'crm', 'pipeline', 'opportunité', 'opportunités'
+        ]
+        
+        user_lower = user_input.lower().strip()
+        return any(pattern in user_lower for pattern in data_patterns)
     
     @api.model
     def _call_anthropic_direct_optimized(self, user_input, config):
@@ -150,7 +172,7 @@ class AnthropicService(models.AbstractModel):
             
             payload = {
                 'model': config.get('anthropic_model') or self.DEFAULT_MODEL,
-                'max_tokens': self.DEFAULT_MAX_TOKENS if not fast_mode else 500,
+                'max_tokens': self.DEFAULT_MAX_TOKENS if not fast_mode else 1000,  # Plus de tokens en mode non-rapide
                 'messages': [{'role': 'user', 'content': content}],
                 'mcp_servers': [{
                     'type': 'url',
@@ -212,23 +234,20 @@ Instructions importantes:
 Requête utilisateur : "{user_input}"
 
 Instructions importantes :
-1. **N'utilise PAS les outils MCP pour :**
-   - Les salutations simples (bonjour, salut, hello, etc.)
-   - Les présentations ou questions générales
-   - Les demandes d'aide générale
 
-2. **Utilise les outils MCP UNIQUEMENT pour :**
-   - Analyser des leads ou opportunités spécifiques
-   - Obtenir des statistiques CRM/Sales réelles
-   - Effectuer du monitoring des performances
-   - Rechercher des enregistrements précis
-
-3. **CRITIQUE - Traitement des résultats :**
-   - Quand tu utilises un outil MCP, tu reçois des données
-   - Tu DOIS intégrer ces données dans ta réponse de manière naturelle
-   - NE JAMAIS afficher les structures JSON brutes ou les métadonnées
-   - Utilise les informations pour formuler une réponse claire et professionnelle
-   - Présente les données de manière organisée et lisible
+1. Ces données proviennent d'un système MCP Odoo et peuvent contenir du JSON brut
+3. Utilise les outils MCP si c'est nécessaire
+4. Reformate ces données de manière claire et professionnelle
+5. Crée des sections bien organisées avec des titres
+6. Utilise des listes à puces pour les éléments
+7. Ajoute des emojis pertinents pour rendre la lecture agréable
+8. Résume les points clés en début de réponse
+9. Mets en évidence les informations importantes (montants, nombres, statuts)
+10. Si ce sont des leads, organise par priorité ou montant
+11. Réponds en français et sois précis
+12. Ignore les métadonnées techniques comme 'role', 'metadata', etc.
+13. Soit précis et concis
+14. Donne des listes lorsque c'est nécessaire
 
 4. **Réponds en français et sois précis.**"""
     
@@ -299,14 +318,54 @@ Instructions importantes :
     def call_anthropic_async(self, user_input, config, callback=None):
         """Version asynchrone pour les appels non-bloquants"""
         def async_call():
-            result = self.call_anthropic_api(user_input, config, fast_mode=True)
-            if callback:
-                callback(result)
-            return result
+            try:
+                result = self.call_anthropic_api(user_input, config)
+                if callback:
+                    callback(result)
+                return result
+            except Exception as e:
+                error_result = f"KO : Erreur async: {str(e)}"
+                if callback:
+                    callback(error_result)
+                return error_result
         
-        future = self._get_thread_pool().submit(async_call)
-        return future
+        if self._thread_pool is None:
+            self._get_thread_pool()
+        
+        return self._thread_pool.submit(async_call)
     
+    @api.model
+    def post_process_with_llm(self, raw_response, user_input=None, config=None):
+        """Méthode de post-traitement pour le serveur MCP Gradio"""
+        try:
+            # Si c'est déjà une réponse formatée, la retourner telle quelle
+            if isinstance(raw_response, str):
+                if raw_response.startswith("KO :") or raw_response.startswith("❌"):
+                    return raw_response
+                
+                # Formatage simple pour améliorer la lisibilité
+                formatted_response = raw_response.strip()
+                
+                # Ajouter des métadonnées si disponibles
+                if user_input and config:
+                    formatted_response += f"\n\n📋 Traité via {config.name if hasattr(config, 'name') else 'Config'}"
+                
+                return formatted_response
+            
+            # Si c'est un objet complexe, essayer de l'extraire
+            if hasattr(raw_response, 'get'):
+                if 'content' in raw_response:
+                    return self._format_mcp_response(raw_response['content'])
+                elif 'text' in raw_response:
+                    return raw_response['text']
+            
+            # Fallback : convertir en string
+            return str(raw_response)
+            
+        except Exception as e:
+            _logger.error(f"Erreur post-traitement: {str(e)}")
+            return f"KO : Erreur post-traitement: {str(e)}"
+
     @api.model
     def _format_mcp_response(self, content_blocks, fast_mode=False):
         """Version complète du formatage (conservée pour compatibilité)"""
