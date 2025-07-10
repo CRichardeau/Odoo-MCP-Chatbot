@@ -25,7 +25,7 @@ Bugs are tracked on GitHub Issues. In case of trouble, please check there if you
 
 Maintainer
 ==========
-This module is maintained by CHEF PIXEL PVT LTD.
+This module is maintained by CHEF PIXEL
 
 For support and more information, please visit `Our Website <https://chef-pixel.fr/>`__
 

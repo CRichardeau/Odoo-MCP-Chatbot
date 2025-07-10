@@ -1,7 +1,7 @@
 {
     'name': 'Chatbot Custom MCP',
-    'version': '18.0.2.0.0',
-    'summary': 'Module de base pour un chatbot Odoo avec MCP Gradio.',
+    'version': '18.0.3.0.0',
+    'summary': 'Module de base pour un chatbot Odoo avec MCP Gradio',
     'description': 'Permet la gestion de messages pour un chatbot personnalisé connecté à l\'API Anthropic via MCP Gradio.',
     'author': 'CHEF PIXEL',
     'website': 'https://chef-pixel.fr',
