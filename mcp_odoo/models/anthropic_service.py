@@ -16,7 +16,7 @@ class AnthropicService(models.AbstractModel):
     
     # Constantes optimisées
     ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-    DEFAULT_MODEL = 'claude-3-5-sonnet-20241022'
+    DEFAULT_MODEL = 'claude-3-5-haiku-20241022'  # Plus rapide que Sonnet
     DEFAULT_MAX_TOKENS = 2000  # Augmenté de 1000 à 2000
     MCP_TIMEOUT = 35  # Réduit de 25 à 15s
     DIRECT_TIMEOUT = 15  # Augmenté de 5 à 15s pour éviter les timeouts
@@ -135,9 +135,13 @@ class AnthropicService(models.AbstractModel):
             # Préparation du payload avec session réutilisable
             session = self._get_requests_session()
             
+            # Adapter les tokens selon la requête
+            is_simple = len(user_input.strip()) < 50
+            max_tokens = 500 if is_simple else self.DEFAULT_MAX_TOKENS
+            
             payload = {
                 'model': config.get('anthropic_model') or self.DEFAULT_MODEL,
-                'max_tokens': self.DEFAULT_MAX_TOKENS,
+                'max_tokens': max_tokens,
                 'messages': [{'role': 'user', 'content': user_input}]
             }
             
