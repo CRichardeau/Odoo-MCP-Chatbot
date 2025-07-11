@@ -18,7 +18,7 @@
     'assets': {
         'web.assets_backend': [
             'mcp_odoo/static/src/scss/chatbot_modal.scss',
-             'MCP_Odoo/static/src/js/chatbot_widget.js',
+             'mcp_Odoo/static/src/js/chatbot_widget.js',
         ],
     },
     'images': ['static/description/icon.png'],
