@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from odoo import models, fields, api
+import time
 
 
 class ChatbotWizard(models.TransientModel):
@@ -49,8 +50,14 @@ class ChatbotWizard(models.TransientModel):
             # Utiliser le service Anthropic commun
             anthropic_service = self.env['anthropic.service']
 
+            # Mesurer le temps de réponse
+            start_time = time.time()
+            
             # Appel initial avec MCP
             raw_response = anthropic_service.call_anthropic_api(self.user_input, config)
+            
+            # Calculer le temps écoulé
+            elapsed_time = time.time() - start_time
 
             # Post-traitement intelligent pour améliorer la présentation
             if (config.mcp_url and
@@ -65,13 +72,24 @@ class ChatbotWizard(models.TransientModel):
             else:
                 bot_response = raw_response
 
-            # Mettre à jour le message et le wizard
-            message.write({'bot_response': bot_response})
-            self.bot_response = self._format_response(bot_response)
+            # Ajouter le temps de réponse au message
+            response_with_time = f"{bot_response}\n\n⏱️ Temps de réponse : {elapsed_time:.2f} secondes"
+            
+            # Mettre à jour le message et le wizard avec le temps de réponse
+            message.write({
+                'bot_response': response_with_time,
+                'response_time': elapsed_time,
+                'status': 'processed'
+            })
+            self.bot_response = self._format_response(response_with_time)
 
         except Exception as e:
             error_msg = f"KO : Erreur: {str(e)}"
-            message.write({'bot_response': error_msg})
+            message.write({
+                'bot_response': error_msg,
+                'status': 'error',
+                'error_message': str(e)
+            })
             self.bot_response = error_msg
 
         return self._return_wizard()
