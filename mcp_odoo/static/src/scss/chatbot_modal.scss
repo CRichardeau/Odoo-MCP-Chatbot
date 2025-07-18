@@ -8,6 +8,32 @@ $text-light: #7F8C8D;
 $success-color: #27AE60;
 $warning-color: #F39C12;
 $danger-color: #E74C3C;
+$info-color: #3498DB;
+
+/* Mixins réutilisables */
+@mixin button-gradient($color) {
+    background: linear-gradient(135deg, $color 0%, darken($color, 10%) 100%);
+    border: none;
+    
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba($color, 0.3);
+    }
+}
+
+@mixin card-style {
+    border-radius: 8px;
+    background: white;
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+@mixin hover-lift {
+    &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+}
 
 /* Container principal du chatbot */
 .chatbot-container {
@@ -37,6 +63,11 @@ $danger-color: #E74C3C;
                 margin-right: 8px;
             }
         }
+    }
+    
+    /* Masquer les boutons Save/Discard d'Odoo */
+    .modal-footer {
+        display: none !important;
     }
 }
 
@@ -124,10 +155,9 @@ $danger-color: #E74C3C;
         }
         
         .message-bubble {
-            background: white;
+            @include card-style;
             color: $text-dark;
             border-radius: 18px 18px 18px 4px;
-            border: 1px solid #e9ecef;
             max-width: 70%;
             position: relative;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
@@ -166,11 +196,8 @@ $danger-color: #E74C3C;
 
 /* Zone de saisie */
 .chat-input-area {
-    background: white;
-    border-radius: 10px;
-    border: 2px solid #e9ecef;
+    @include card-style;
     padding: 15px;
-    transition: border-color 0.3s ease;
     
     &:focus-within {
         border-color: $primary-color;
@@ -204,58 +231,44 @@ $danger-color: #E74C3C;
             display: flex;
             justify-content: flex-start;
             margin-top: 10px;
-            
-            .btn {
-                border-radius: 8px;
-            }
         }
     }
 }
 
-/* Boutons d'action */
-.chat-actions {
-    .btn {
-        border-radius: 8px;
-        font-weight: 500;
-        transition: all 0.3s ease;
+/* Boutons */
+.btn {
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    
+    &.btn-primary {
+        @include button-gradient($primary-color);
         
-        &.btn-primary {
-            background: linear-gradient(135deg, $primary-color 0%, darken($primary-color, 10%) 100%);
-            border: none;
-            
-            &:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba($primary-color, 0.3);
-            }
-            
-            &:disabled {
-                background: $text-light;
-                transform: none;
-                box-shadow: none;
-            }
+        &:disabled {
+            background: $text-light;
+            transform: none;
+            box-shadow: none;
         }
+    }
+    
+    &.btn-secondary {
+        background: white;
+        border: 2px solid #e9ecef;
+        color: $text-dark;
         
-        &.btn-secondary {
-            background: white;
-            border: 2px solid #e9ecef;
-            color: $text-dark;
-            
-            &:hover {
-                border-color: $primary-color;
-                color: $primary-color;
-                transform: translateY(-1px);
-            }
+        &:hover {
+            border-color: $primary-color;
+            color: $primary-color;
+            transform: translateY(-1px);
         }
-        
-        &.btn-info {
-            background: linear-gradient(135deg, #3498DB 0%, darken(#3498DB, 10%) 100%);
-            border: none;
-            
-            &:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(#3498DB, 0.3);
-            }
-        }
+    }
+    
+    &.btn-info {
+        @include button-gradient($info-color);
+    }
+    
+    &.btn-success {
+        @include button-gradient($success-color);
     }
 }
 
@@ -297,13 +310,10 @@ $danger-color: #E74C3C;
 /* Historique des conversations */
 .chat-history {
     .history-item {
+        @include card-style;
         padding: 10px 15px;
-        border-radius: 8px;
         margin-bottom: 8px;
-        background: white;
-        border: 1px solid #e9ecef;
         cursor: pointer;
-        transition: all 0.3s ease;
         
         &:hover {
             border-color: $primary-color;
@@ -354,6 +364,111 @@ $danger-color: #E74C3C;
     }
 }
 
+/* Dashboard styles */
+.o_dashboard_container {
+    padding: 20px;
+    
+    .o_dashboard_header {
+        text-align: center;
+        margin-bottom: 30px;
+        
+        h1 {
+            color: $primary-color;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .text-muted {
+            font-size: 1.1em;
+        }
+    }
+    
+    .card {
+        @include card-style;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            padding: 15px;
+            
+            h5 {
+                margin: 0;
+                color: #333;
+                font-weight: 600;
+            }
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+    }
+    
+    .alert {
+        border-radius: 6px;
+        padding: 15px;
+        margin-bottom: 20px;
+        
+        &.alert-info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
+        }
+    }
+    
+    .btn {
+        @include hover-lift;
+        padding: 10px 20px;
+        
+        i {
+            margin-right: 8px;
+        }
+    }
+    
+    /* Grid system */
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        margin-left: -15px;
+        margin-right: -15px;
+    }
+    
+    [class*="col-"] {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+    
+    .col-md-8 {
+        flex: 0 0 66.666667%;
+        max-width: 66.666667%;
+    }
+    
+    .col-md-4 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+    }
+    
+    .col-12 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+    
+    .col-6 {
+        flex: 0 0 50%;
+        max-width: 50%;
+    }
+    
+    ul {
+        padding-left: 20px;
+        
+        li {
+            margin-bottom: 5px;
+            color: #555;
+        }
+    }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .chatbot-container .modal-dialog {
@@ -361,9 +476,19 @@ $danger-color: #E74C3C;
         margin: 0.5rem;
     }
     
-    .chat-message {
-        .message-bubble {
-            max-width: 85%;
+    .chat-message .message-bubble {
+        max-width: 85%;
+    }
+    
+    .o_dashboard_container {
+        .col-md-4,
+        .col-md-8 {
+            flex: 0 0 100%;
+            max-width: 100%;
+        }
+        
+        .o_dashboard_header h1 {
+            font-size: 2em;
         }
     }
 }
@@ -394,18 +519,27 @@ $danger-color: #E74C3C;
     }
 }
 
-/* Masquer les boutons Save/Discard automatiques d'Odoo dans la modal chatbot */
-.chatbot-container .modal-footer {
-    display: none !important;
+/* Utility classes */
+.d-grid {
+    display: grid;
+    
+    &.gap-2 {
+        gap: 10px;
+    }
 }
 
-/* Alternative plus spécifique si nécessaire */
-.modal-dialog .modal-content .modal-footer button[data-hotkey="s"],
-.modal-dialog .modal-content .modal-footer button[data-hotkey="j"] {
-    display: none !important;
+.text-center {
+    text-align: center;
 }
 
-/* Masquer complètement la zone des boutons pour le chatbot */
-.chatbot-container + .modal-footer {
-    display: none !important;
-} 
+.text-muted {
+    color: $text-light;
+}
+
+.mt-3 {
+    margin-top: 1rem;
+}
+
+.mt-4 {
+    margin-top: 1.5rem;
+}
