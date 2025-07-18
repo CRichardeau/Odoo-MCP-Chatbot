@@ -1,403 +1,358 @@
-from odoo import models, api, tools
-import requests
-import json
+# -*- coding: utf-8 -*-
 import logging
-from functools import lru_cache
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import time
+import requests
+from datetime import timedelta
+from typing import Dict, Any, List, Optional
+from odoo import models, fields, api
+from odoo.exceptions import UserError
+from .base_service import BaseService
 
 _logger = logging.getLogger(__name__)
 
-class AnthropicService(models.AbstractModel):
-    """Service optimisé pour les appels API Anthropic avec mise en cache et threading"""
+
+class AnthropicService(BaseService, models.Model):
+    """Service for managing Anthropic API interactions."""
+    
     _name = 'anthropic.service'
-    _description = 'Service Anthropic centralisé et optimisé'
+    _description = 'Anthropic API Service'
+    _rec_name = 'create_date'
     
-    # Constantes optimisées
-    ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-    DEFAULT_MODEL = 'claude-3-5-haiku-20241022'  # Plus rapide que Sonnet
-    DEFAULT_MAX_TOKENS = 2000  # Augmenté de 1000 à 2000
-    MCP_TIMEOUT = 35  # Réduit de 25 à 15s
-    DIRECT_TIMEOUT = 15  # Augmenté de 5 à 15s pour éviter les timeouts
-    
-    # Variables de classe pour persistance
-    _thread_pool = None
-    _session_cache = {}
-    _session_lock = threading.Lock()
-    
-    # Cache pour les configurations
-    _config_cache = {}
-    _cache_timeout = 300  # 5 minutes
+    # Fields
+    request_data = fields.Text('Request Data')
+    response_data = fields.Text('Response Data')
+    error_message = fields.Text('Error Message')
+    success = fields.Boolean('Success', default=False)
     
     @api.model
-    def _get_thread_pool(self):
-        """Initialise le pool de threads de manière paresseuse"""
-        if AnthropicService._thread_pool is None:
-            AnthropicService._thread_pool = ThreadPoolExecutor(max_workers=3)
-        return AnthropicService._thread_pool
-    
-    @api.model
-    @tools.ormcache('config_id')
-    def _get_cached_config(self, config_id):
-        """Cache la configuration pour éviter les requêtes répétées"""
-        config = self.env['chatbot.config'].browse(config_id)
-        return {
-            'anthropic_api_key': config.anthropic_api_key,
-            'anthropic_model': config.anthropic_model,
-            'mcp_url': getattr(config, 'mcp_url', None)
+    def create_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = 'claude-3-5-sonnet-20241022',
+        temperature: float = 0.7,
+        max_tokens: int = 4096
+    ) -> Dict[str, Any]:
+        """
+        Create a chat completion using Anthropic API.
+        
+        Args:
+            messages: List of message dictionaries
+            model: Model to use
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            
+        Returns:
+            API response dictionary
+        """
+        config = self.env['chatbot.config'].sudo().search([], limit=1)
+        if not config or not config.api_key:
+            raise UserError('Anthropic API key not configured')
+        
+        # Prepare headers using base method
+        headers = self._prepare_headers(config.api_key, 'application/json')
+        headers.update({
+            'x-api-key': config.api_key,
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'tools-2024-04-04'
+        })
+        
+        # Build system prompt with Odoo context
+        system_prompt = self._build_system_prompt()
+        
+        # Define available tools if MCP is connected
+        tools = []
+        config = self.env['chatbot.config'].get_active_config()
+        if config.mcp_connected:
+            tools = [
+                {
+                    "name": "search_odoo_records",
+                    "description": "Search for records in Odoo database",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "model": {
+                                "type": "string",
+                                "description": "Odoo model name (e.g., 'crm.lead', 'res.partner')"
+                            },
+                            "domain": {
+                                "type": "array",
+                                "description": "Search domain (e.g., [['name', 'ilike', 'test']])",
+                                "default": []
+                            },
+                            "fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Fields to retrieve",
+                                "default": ["name", "id"]
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of records",
+                                "default": 10
+                            },
+                            "order": {
+                                "type": "string",
+                                "description": "Sort order (e.g., 'create_date desc')",
+                                "default": "id desc"
+                            }
+                        },
+                        "required": ["model"]
+                    }
+                },
+                {
+                    "name": "read_odoo_record",
+                    "description": "Read specific fields from an Odoo record",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "model": {
+                                "type": "string",
+                                "description": "Odoo model name"
+                            },
+                            "record_id": {
+                                "type": "integer",
+                                "description": "Record ID"
+                            },
+                            "fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Fields to read"
+                            }
+                        },
+                        "required": ["model", "record_id", "fields"]
+                    }
+                }
+            ]
+        
+        # Prepare payload
+        payload = {
+            'model': model,
+            'messages': messages,
+            'system': system_prompt,
+            'temperature': temperature,
+            'max_tokens': max_tokens
         }
-    
-    @api.model
-    def call_anthropic_api(self, user_input, config, fast_mode=True):
-        """Point d'entrée principal optimisé"""
-        start_time = time.time()
+        
+        # Add tools if available
+        if tools:
+            payload['tools'] = tools
+            # Let Claude decide when to use tools
+            payload['tool_choice'] = {'type': 'auto'}
+        
+        # Log request
+        service_record = self.create({
+            'request_data': str(payload),
+            'success': False
+        })
         
         try:
-            # Validation rapide des inputs
-            if not user_input or not user_input.strip():
-                return "KO : Requête vide"
-            
-            # Cache de la config si c'est un recordset
-            if hasattr(config, 'id'):
-                cached_config = self._get_cached_config(config.id)
-            else:
-                cached_config = config
-            
-            # Validation de la clé API
-            if not cached_config.get('anthropic_api_key'):
-                return "KO : Clé API Anthropic requise"
-            
-            # Classification rapide du type d'appel
-            use_mcp = bool(cached_config.get('mcp_url'))
-            
-            # Détection des requêtes simples qui n'ont pas besoin de MCP
-            if use_mcp and self._is_simple_query(user_input):
-                _logger.info("Requête simple détectée, utilisation d'Anthropic direct")
-                use_mcp = False
-            
-            # Détecter si c'est une requête complexe de données (leads, CRM, etc.)
-            if self._is_data_query(user_input):
-                fast_mode = False  # Forcer le mode complet pour les requêtes de données
-                _logger.info("Requête de données détectée, utilisation du mode complet")
-            
-            # Appel optimisé selon le type
-            if use_mcp:
-                _logger.info("Mode MCP Connector")
-                result = self._call_anthropic_with_mcp_optimized(user_input, cached_config, fast_mode)
-            else:
-                _logger.info("Mode Anthropic direct")
-                result = self._call_anthropic_direct_optimized(user_input, cached_config)
-            
-            elapsed = time.time() - start_time
-            _logger.info(f"Appel Anthropic terminé en {elapsed:.2f}s")
-            
-            return result
-            
-        except Exception as e:
-            _logger.error(f"Erreur dans call_anthropic_api: {str(e)}")
-            return f"KO : Erreur: {str(e)}"
-    
-    @api.model
-    def _is_simple_query(self, user_input):
-        """Détecte les requêtes simples qui n'ont pas besoin de MCP"""
-        simple_patterns = [
-            'bonjour', 'salut', 'hello', 'hi', 'bonsoir',
-            'comment ça va', 'merci', 'au revoir', 'bye'
-        ]
-        
-        user_lower = user_input.lower().strip()
-        # Seules les vraies salutations basiques sont simples
-        # Les questions sur les capacités ('que peux-tu faire', 'aide', etc.) doivent utiliser MCP
-        return any(pattern in user_lower for pattern in simple_patterns) and len(user_input.strip()) < 20
-    
-    @api.model
-    def _is_data_query(self, user_input):
-        """Détecte les requêtes qui nécessitent l'accès aux données Odoo"""
-        data_patterns = [
-            'lead', 'leads', 'prospect', 'prospects',
-            'client', 'clients', 'customer', 'customers',
-            'vente', 'ventes', 'sale', 'sales', 
-            'commande', 'commandes', 'order', 'orders',
-            'facture', 'factures', 'invoice', 'invoices',
-            'liste', 'lister', 'list', 'show', 'affiche', 'afficher',
-            'statistique', 'stats', 'résumé', 'summary',
-            'crm', 'pipeline', 'opportunité', 'opportunités'
-        ]
-        
-        user_lower = user_input.lower().strip()
-        return any(pattern in user_lower for pattern in data_patterns)
-    
-    @api.model
-    def _call_anthropic_direct_optimized(self, user_input, config):
-        """Version optimisée de l'appel direct"""
-        try:
-            # Préparation du payload avec session réutilisable
-            session = self._get_requests_session()
-            
-            # Adapter les tokens selon la requête
-            is_simple = len(user_input.strip()) < 50
-            max_tokens = 500 if is_simple else self.DEFAULT_MAX_TOKENS
-            
-            payload = {
-                'model': config.get('anthropic_model') or self.DEFAULT_MODEL,
-                'max_tokens': max_tokens,
-                'messages': [{'role': 'user', 'content': user_input}]
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'x-api-key': config['anthropic_api_key'],
-                'anthropic-version': '2023-06-01'
-            }
-            
-            response = session.post(
-                self.ANTHROPIC_API_URL,
+            # Make API request
+            response = requests.post(
+                'https://api.anthropic.com/v1/messages',
                 json=payload,
                 headers=headers,
-                timeout=self.DIRECT_TIMEOUT
+                timeout=30
             )
             
-            return self._process_direct_response(response)
-            
-        except Exception as e:
-            _logger.error(f"Erreur appel direct optimisé: {str(e)}")
-            return f"KO : Erreur API: {str(e)}"
-    
-    @api.model
-    def _call_anthropic_with_mcp_optimized(self, user_input, config, fast_mode=True):
-        """Version optimisée de l'appel MCP"""
-        try:
-            session = self._get_requests_session()
-            mcp_url = self._prepare_mcp_url_cached(config['mcp_url'])
-            
-            # Prompt optimisé selon le mode
-            content = self._build_optimized_prompt(user_input, fast_mode)
-            
-            payload = {
-                'model': config.get('anthropic_model') or self.DEFAULT_MODEL,
-                'max_tokens': self.DEFAULT_MAX_TOKENS if not fast_mode else 1000,  # Plus de tokens en mode non-rapide
-                'messages': [{'role': 'user', 'content': content}],
-                'mcp_servers': [{
-                    'type': 'url',
-                    'url': mcp_url,
-                    'name': 'odoo-mcp-server',
-                    'tool_configuration': {'enabled': True}
-                }]
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'x-api-key': config['anthropic_api_key'],
-                'anthropic-version': '2023-06-01',
-                'anthropic-beta': 'mcp-client-2025-04-04'
-            }
-            
-            response = session.post(
-                self.ANTHROPIC_API_URL,
-                json=payload,
-                headers=headers,
-                timeout=self.MCP_TIMEOUT
-            )
-            
-            return self._process_mcp_response_optimized(response, fast_mode)
+            if response.status_code == 200:
+                data = response.json()
                 
-        except Exception as e:
-            _logger.error(f"Erreur MCP optimisé: {str(e)}")
-            return f"KO : Erreur MCP: {str(e)}"
-    
-    @lru_cache(maxsize=128)
-    def _prepare_mcp_url_cached(self, mcp_url):
-        """Version mise en cache de la préparation d'URL MCP"""
-        if not mcp_url.endswith('/sse') and '/gradio_api/mcp/sse' not in mcp_url:
-            if mcp_url.endswith('/gradio_api/mcp'):
-                return mcp_url + '/sse'
-            elif '/gradio_api/mcp' not in mcp_url:
-                return mcp_url.rstrip('/') + '/gradio_api/mcp/sse'
-        return mcp_url
-    
-    @api.model
-    def _build_optimized_prompt(self, user_input, fast_mode=True):
-        """Construit un prompt optimisé selon le mode"""
-        if fast_mode:
-            return f"""Tu es un assistant Odoo CRM connecté via MCP.
-
-Requête utilisateur: "{user_input}"
-
-Instructions importantes:
-- Si c'est une salutation simple: réponds directement SANS outils
-- Si tu as besoin de données Odoo: utilise les outils MCP appropriés
-- IMPORTANT: Quand tu utilises les outils MCP, tu DOIS intégrer les résultats dans ta réponse de manière naturelle
-- NE JAMAIS afficher les structures JSON brutes ou les métadonnées des outils
-- Utilise les données récupérées pour formuler une réponse claire et utile
-- Réponds en français et sois précis"""
-        else:
-            # Version complète pour les requêtes complexes
-            return f"""Tu es un assistant Odoo CRM & Sales connecté à un serveur MCP.
-
-Requête utilisateur : "{user_input}"
-
-Instructions importantes :
-
-1. Ces données proviennent d'un système MCP Odoo et peuvent contenir du JSON brut
-3. Utilise les outils MCP si c'est nécessaire
-4. Reformate ces données de manière claire et professionnelle
-5. Crée des sections bien organisées avec des titres
-6. Utilise des listes à puces pour les éléments
-7. Ajoute des emojis pertinents pour rendre la lecture agréable
-8. Résume les points clés en début de réponse
-9. Mets en évidence les informations importantes (montants, nombres, statuts)
-10. Si ce sont des leads, organise par priorité ou montant
-11. Réponds en français et sois précis
-12. Ignore les métadonnées techniques comme 'role', 'metadata', etc.
-13. Soit précis et concis
-14. Donne des listes lorsque c'est nécessaire
-
-4. **Réponds en français et sois précis.**"""
-    
-    @api.model
-    def _get_requests_session(self):
-        """Retourne une session requests optimisée et réutilisable"""
-        session_key = f"anthropic_session_{self.env.cr.dbname}"
-        
-        with AnthropicService._session_lock:
-            if session_key not in AnthropicService._session_cache:
-                session = requests.Session()
-                # Configuration optimisée
-                session.headers.update({
-                    'User-Agent': 'Odoo-Anthropic-Client/1.0',
-                    'Connection': 'keep-alive'
+                # Update service record
+                service_record.write({
+                    'response_data': str(data),
+                    'success': True
                 })
-                # Pool de connexions
-                adapter = requests.adapters.HTTPAdapter(
-                    pool_connections=5,
-                    pool_maxsize=10,
-                    max_retries=1
-                )
-                session.mount('https://', adapter)
-                AnthropicService._session_cache[session_key] = session
-            
-            return AnthropicService._session_cache[session_key]
-    
-    @api.model
-    def _process_direct_response(self, response):
-        """Traitement optimisé des réponses directes"""
-        if response.status_code == 200:
-            data = response.json()
-            if 'content' in data and data['content']:
-                return data['content'][0].get('text', 'Réponse Anthropic')
-            return "Réponse reçue d'Anthropic"
-        
-        _logger.error(f"Erreur API Anthropic: {response.status_code}")
-        return f"KO : Erreur {response.status_code}"
-    
-    @api.model
-    def _process_mcp_response_optimized(self, response, fast_mode=True):
-        """Traitement optimisé des réponses MCP"""
-        if response.status_code == 200:
-            data = response.json()
-            if 'content' in data and data['content']:
-                return self._format_mcp_response_fast(data['content']) if fast_mode else self._format_mcp_response(data['content'], fast_mode=False)
-            return "Réponse MCP reçue"
-        
-        elif response.status_code == 400:
-            return "KO : Configuration MCP incorrecte"
-        else:
-            return f"KO : Erreur API {response.status_code}"
-    
-    @api.model
-    def _format_mcp_response_fast(self, content_blocks):
-        """Formatage ultra-rapide pour le mode fast"""
-        result_parts = []
-        
-        for block in content_blocks:
-            if block.get('type') == 'text':
-                text = block.get('text', '').strip()
-                if text:
-                    result_parts.append(text)
-        
-        return "\n\n".join(result_parts) if result_parts else "Réponse MCP"
-    
-    @api.model
-    def call_anthropic_async(self, user_input, config, callback=None):
-        """Version asynchrone pour les appels non-bloquants"""
-        def async_call():
-            try:
-                result = self.call_anthropic_api(user_input, config)
-                if callback:
-                    callback(result)
-                return result
-            except Exception as e:
-                error_result = f"KO : Erreur async: {str(e)}"
-                if callback:
-                    callback(error_result)
-                return error_result
-        
-        if self._thread_pool is None:
-            self._get_thread_pool()
-        
-        return self._thread_pool.submit(async_call)
-    
-    @api.model
-    def post_process_with_llm(self, raw_response, user_input=None, config=None):
-        """Méthode de post-traitement pour le serveur MCP Gradio"""
-        try:
-            # Si c'est déjà une réponse formatée, la retourner telle quelle
-            if isinstance(raw_response, str):
-                if raw_response.startswith("KO :") or raw_response.startswith("❌"):
-                    return raw_response
                 
-                # Formatage simple pour améliorer la lisibilité
-                formatted_response = raw_response.strip()
+                # Process the response
+                result_text = ""
+                tool_calls = []
                 
-                # Ajouter des métadonnées si disponibles
-                if user_input and config:
-                    formatted_response += f"\n\n📋 Traité via {config.name if hasattr(config, 'name') else 'Config'}"
+                content = data.get('content', [])
+                for item in content:
+                    if item.get('type') == 'text':
+                        result_text += item.get('text', '')
+                    elif item.get('type') == 'tool_use':
+                        tool_calls.append(item)
                 
-                return formatted_response
-            
-            # Si c'est un objet complexe, essayer de l'extraire
-            if hasattr(raw_response, 'get'):
-                if 'content' in raw_response:
-                    return self._format_mcp_response(raw_response['content'])
-                elif 'text' in raw_response:
-                    return raw_response['text']
-            
-            # Fallback : convertir en string
-            return str(raw_response)
-            
+                # If there are tool calls, execute them
+                if tool_calls:
+                    tool_results = []
+                    for tool_call in tool_calls:
+                        tool_name = tool_call.get('name')
+                        tool_input = tool_call.get('input', {})
+                        tool_id = tool_call.get('id')
+                        
+                        try:
+                            # Execute the tool
+                            tool_result = self._execute_tool(tool_name, tool_input)
+                            tool_results.append({
+                                'type': 'tool_result',
+                                'tool_use_id': tool_id,
+                                'content': str(tool_result)
+                            })
+                        except Exception as e:
+                            tool_results.append({
+                                'type': 'tool_result',
+                                'tool_use_id': tool_id,
+                                'content': f"Error: {str(e)}",
+                                'is_error': True
+                            })
+                    
+                    # Continue the conversation with tool results
+                    messages_with_tools = messages + [{
+                        'role': 'assistant',
+                        'content': content
+                    }, {
+                        'role': 'user',
+                        'content': tool_results
+                    }]
+                    
+                    # Make another API call with tool results
+                    return self.create_chat_completion(
+                        messages=messages_with_tools,
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                
+                # Return the text response
+                return {
+                    'success': True,
+                    'message': result_text,
+                    'usage': data.get('usage', {})
+                }
+            else:
+                error_msg = f'API Error: {response.status_code} - {response.text}'
+                service_record.write({
+                    'error_message': error_msg,
+                    'success': False
+                })
+                raise UserError(error_msg)
+                
+        except requests.exceptions.RequestException as e:
+            error_msg = f'Network error: {str(e)}'
+            service_record.write({
+                'error_message': error_msg,
+                'success': False
+            })
+            raise UserError(error_msg)
         except Exception as e:
-            _logger.error(f"Erreur post-traitement: {str(e)}")
-            return f"KO : Erreur post-traitement: {str(e)}"
+            error_msg = f'Unexpected error: {str(e)}'
+            service_record.write({
+                'error_message': error_msg,
+                'success': False
+            })
+            raise UserError(error_msg)
+    
+    def _build_system_prompt(self) -> str:
+        """
+        Build system prompt with Odoo context.
+        
+        Returns:
+            System prompt string
+        """
+        user = self.env.user
+        company = user.company_id
+        config = self.env['chatbot.config'].get_active_config()
+        
+        # Check if MCP is connected
+        mcp_instructions = ""
+        if config.mcp_connected:
+            mcp_instructions = """
+You have DIRECT ACCESS to the Odoo database through the MCP server. You can:
+- Search records: Use search_records(model, domain, fields, limit)
+- Create records: Use create_record(model, values)
+- Update records: Use update_record(model, record_id, values)
+- Delete records: Use delete_record(model, record_id)
+- Execute methods: Use execute_method(model, method, args)
 
-    @api.model
-    def _format_mcp_response(self, content_blocks, fast_mode=False):
-        """Version complète du formatage (conservée pour compatibilité)"""
-        if fast_mode:
-            return self._format_mcp_response_fast(content_blocks)
+Common Odoo models:
+- crm.lead: CRM leads and opportunities
+- res.partner: Contacts and companies
+- sale.order: Sales orders
+- account.move: Invoices and bills
+- product.product: Products
+
+When users ask about Odoo data, ALWAYS use the tools to query the database directly instead of saying you cannot access it. For example:
+- To find the latest lead: use search_odoo_records with model='crm.lead', order='create_date desc', limit=1
+- To get partner details: use read_odoo_record with model='res.partner', record_id=ID, fields=['name', 'email', 'phone']
+"""
         
-        # Implémentation complète conservée...
-        main_response = []
-        tool_results = []
+        return f"""You are an AI assistant integrated with Odoo ERP system.
+
+Current context:
+- User: {user.name}
+- Company: {company.name}
+- Language: {user.lang or 'en_US'}
+{mcp_instructions}
+You have access to Odoo's business context and can help with:
+- Answering questions about business data
+- Explaining processes and workflows
+- Providing insights and recommendations
+- Helping with Odoo usage
+
+Always provide helpful, accurate, and contextual responses."""
+    
+    def _execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a tool call through MCP server.
         
-        for block in content_blocks:
-            if block.get('type') == 'text':
-                text_content = block.get('text', '').strip()
-                if text_content:
-                    # Éviter les structures JSON brutes
-                    if not (text_content.startswith('[{') and text_content.endswith('}]')):
-                        main_response.append(text_content)
-            elif block.get('type') == 'mcp_tool_result':
-                if not block.get('is_error', False):
-                    tool_content = block.get('content', [])
-                    if tool_content and len(tool_content) > 0:
-                        result_text = tool_content[0].get('text', str(tool_content))
-                        if result_text and result_text.strip():
-                            # Inclure tous les tool_results pour traitement ultérieur
-                            tool_results.append(result_text.strip())
+        Args:
+            tool_name: Name of the tool to execute
+            tool_input: Tool parameters
+            
+        Returns:
+            Tool execution result
+        """
+        config = self.env['chatbot.config'].get_active_config()
+        if not config.mcp_connected:
+            raise UserError('MCP not connected')
         
-        final_parts = []
-        if main_response:
-            final_parts.extend(main_response)
         
-        return "\n".join(final_parts) if final_parts else "Réponse MCP"
+        # Map tool names to MCP endpoints
+        if tool_name == 'search_odoo_records':
+            url = f"{config.mcp_server_url.rstrip('/')}/search"
+            payload = {
+                'model': tool_input.get('model'),
+                'domain': tool_input.get('domain', []),
+                'fields': tool_input.get('fields', ['name', 'id']),
+                'limit': tool_input.get('limit', 10),
+                'order': tool_input.get('order', 'id desc')
+            }
+        elif tool_name == 'read_odoo_record':
+            url = f"{config.mcp_server_url.rstrip('/')}/read"
+            payload = {
+                'model': tool_input.get('model'),
+                'ids': [tool_input.get('record_id')],
+                'fields': tool_input.get('fields')
+            }
+        else:
+            raise UserError(f'Unknown tool: {tool_name}')
+        
+        # Execute the request
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise UserError(f'MCP Error: {response.status_code} - {response.text}')
+                
+        except Exception as e:
+            raise UserError(f'Tool execution error: {str(e)}')
+    
+    
+    @api.autovacuum
+    def _gc_old_records(self):
+        """Clean up old service records (keep last 7 days)."""
+        days_to_keep = 7
+        domain = [
+            ('create_date', '<', fields.Datetime.now() - timedelta(days=days_to_keep))
+        ]
+        records = self.search(domain)
+        records.unlink()
+        _logger.info(f'Cleaned up {len(records)} old Anthropic service records')
