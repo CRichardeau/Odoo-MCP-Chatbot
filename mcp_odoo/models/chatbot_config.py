@@ -207,3 +207,6 @@ class ChatbotConfig(models.Model):
             
             result.append((record.id, name))
         return result 
+
+    def _valid_field_parameter(self, field, name):
+        return name == 'anthropic_api_key' or super()._valid_field_parameter(field, name)
