@@ -1,5 +1,9 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_chatbot_config,access_chatbot_config,model_chatbot_config,base.group_user,1,1,1,1
-access_chatbot_message,access_chatbot_message,model_chatbot_custom_message,base.group_user,1,1,1,1
-access_chatbot_wizard,access_chatbot_wizard,model_chatbot_wizard,base.group_user,1,1,1,1
-access_anthropic_service,access_anthropic_service,model_anthropic_service,base.group_user,1,1,1,1
+access_chatbot_config_user,access_chatbot_config_user,model_chatbot_config,base.group_user,1,1,1,0
+access_chatbot_config_system,access_chatbot_config_system,model_chatbot_config,base.group_system,1,1,1,1
+access_chatbot_message_user,access_chatbot_message_user,model_chatbot_message,base.group_user,1,1,1,0
+access_chatbot_wizard_user,access_chatbot_wizard_user,model_chatbot_wizard,base.group_user,1,1,1,1
+access_anthropic_service_user,access_anthropic_service_user,model_anthropic_service,base.group_user,1,0,0,0
+access_anthropic_service_system,access_anthropic_service_system,model_anthropic_service,base.group_system,1,1,1,1
+access_mcp_service_user,access_mcp_service_user,model_mcp_service,base.group_user,1,0,0,0
+access_mcp_service_system,access_mcp_service_system,model_mcp_service,base.group_system,1,1,1,1

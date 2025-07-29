@@ -1,16 +1,13 @@
 from odoo import http
 from odoo.http import request
-import json
-import requests
 import logging
 
 _logger = logging.getLogger(__name__)
 
 class ChatbotController(http.Controller):
     
-    @http.route('/api/chatbot/send_message', type='json', auth='user', methods=['POST'])
-    def send_message(self, user_input, fast_mode=False):
-        """API pour envoyer un message au chatbot et recevoir la réponse"""
+    def _process_message(self, user_input, fast_mode=False):
+        """Méthode interne pour traiter les messages"""
         if not user_input or not user_input.strip():
             return {
                 'success': False,
@@ -19,18 +16,18 @@ class ChatbotController(http.Controller):
             
         try:
             # Créer l'enregistrement du message utilisateur
-            message = request.env['chatbot_custom.message'].create({
+            message = request.env['chatbot.message'].create({
                 'user_input': user_input.strip(),
-                'timestamp': request.env['chatbot_custom.message']._fields['timestamp'].default()
+                'timestamp': request.env['chatbot.message']._fields['timestamp'].default()
             })
             
             # Récupérer la configuration active
-            config = request.env['chatbot.config'].search([('is_active', '=', True)], limit=1)
+            config = request.env['chatbot.config'].search([('active', '=', True)], limit=1)
             
             if not config:
                 bot_response = "KO Aucune configuration active trouvée"
                 _logger.warning("Aucune configuration chatbot active trouvée")
-            elif not config.anthropic_api_key:
+            elif not config.api_key:
                 bot_response = "KO Clé API Anthropic non configurée"
                 _logger.warning("Clé API Anthropic manquante dans la configuration")
             else:
@@ -41,9 +38,10 @@ class ChatbotController(http.Controller):
             # Mettre à jour le message avec la réponse du bot
             message.write({'bot_response': bot_response})
             
-            _logger.info(f"Message chatbot traité avec succès (ID: {message.id})")
+            mode_label = "RAPIDE" if fast_mode else "normal"
+            _logger.info(f"Message chatbot {mode_label} traité avec succès (ID: {message.id})")
             
-            return {
+            result = {
                 'success': True,
                 'message_id': message.id,
                 'user_input': user_input.strip(),
@@ -51,12 +49,22 @@ class ChatbotController(http.Controller):
                 'timestamp': message.timestamp.isoformat()
             }
             
+            if fast_mode:
+                result['mode'] = 'fast'
+                
+            return result
+            
         except Exception as e:
             _logger.error(f"Erreur lors du traitement du message chatbot: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
             }
+    
+    @http.route('/api/chatbot/send_message', type='json', auth='user', methods=['POST'])
+    def send_message(self, user_input, fast_mode=False):
+        """API pour envoyer un message au chatbot et recevoir la réponse"""
+        return self._process_message(user_input, fast_mode)
 
     @http.route('/api/chatbot/get_messages', type='json', auth='user', methods=['GET'])
     def get_messages(self, limit=10):
@@ -65,7 +73,7 @@ class ChatbotController(http.Controller):
             # Validation des paramètres
             limit = min(max(int(limit), 1), 100)  # Entre 1 et 100
             
-            messages = request.env['chatbot_custom.message'].search(
+            messages = request.env['MCP_Odoo.message'].search(
                 [], 
                 order='timestamp desc', 
                 limit=limit
@@ -98,50 +106,4 @@ class ChatbotController(http.Controller):
     @http.route('/api/chatbot/send_message_fast', type='json', auth='user', methods=['POST'])
     def send_message_fast(self, user_input):
         """API RAPIDE pour envoyer un message au chatbot - sans post-traitement"""
-        if not user_input or not user_input.strip():
-            return {
-                'success': False,
-                'error': 'Message vide non autorisé'
-            }
-            
-        try:
-            # Créer l'enregistrement du message utilisateur
-            message = request.env['chatbot_custom.message'].create({
-                'user_input': user_input.strip(),
-                'timestamp': request.env['chatbot_custom.message']._fields['timestamp'].default()
-            })
-            
-            # Récupérer la configuration active
-            config = request.env['chatbot.config'].search([('is_active', '=', True)], limit=1)
-            
-            if not config:
-                bot_response = "KO Aucune configuration active trouvée"
-                _logger.warning("Aucune configuration chatbot active trouvée")
-            elif not config.anthropic_api_key:
-                bot_response = "KO Clé API Anthropic non configurée"
-                _logger.warning("Clé API Anthropic manquante dans la configuration")
-            else:
-                # Utiliser le service Anthropic avec le mode rapide
-                anthropic_service = request.env['anthropic.service']
-                bot_response = anthropic_service.call_anthropic_api(user_input.strip(), config, fast_mode=True)
-            
-            # Mettre à jour le message avec la réponse du bot
-            message.write({'bot_response': bot_response})
-            
-            _logger.info(f"Message chatbot RAPIDE traité avec succès (ID: {message.id})")
-            
-            return {
-                'success': True,
-                'message_id': message.id,
-                'user_input': user_input.strip(),
-                'bot_response': bot_response,
-                'timestamp': message.timestamp.isoformat(),
-                'mode': 'fast'
-            }
-            
-        except Exception as e:
-            _logger.error(f"Erreur lors du traitement RAPIDE du message chatbot: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+        return self._process_message(user_input, fast_mode=True)

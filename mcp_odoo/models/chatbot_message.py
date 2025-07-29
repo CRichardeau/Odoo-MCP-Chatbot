@@ -1,74 +1,175 @@
+# -*- coding: utf-8 -*-
+import uuid
+import logging
+from datetime import timedelta
 from odoo import models, fields, api
 
-class ChatbotMessage(models.Model):
-    _name = 'chatbot_custom.message'
-    _description = 'Message du Chatbot'
-    _order = 'timestamp desc'
-    _rec_name = 'user_input'
+_logger = logging.getLogger(__name__)
 
-    user_input = fields.Char(string='Entrée utilisateur', required=True)
-    bot_response = fields.Html(string='Réponse du bot')
-    timestamp = fields.Datetime(string='Horodatage', default=fields.Datetime.now, readonly=True)
+
+class ChatbotMessage(models.Model):
+    """Model to store chatbot conversation history."""
     
-    # Nouveaux champs pour l'historique
-    user_id = fields.Many2one('res.users', string='Utilisateur', default=lambda self: self.env.user, readonly=True)
-    session_id = fields.Char(string='Session ID', default=lambda self: self._generate_session_id())
-    conversation_id = fields.Char(string='Conversation', compute='_compute_conversation_id', store=True)
-    message_type = fields.Selection([
-        ('user', 'Message utilisateur'),
-        ('bot', 'Réponse bot'),
-        ('system', 'Message système')
-    ], string='Type de message', default='user')
+    _name = 'chatbot.message'
+    _description = 'Chatbot Message'
+    _order = 'create_date desc'
+    _rec_name = 'user_message'
+    
+    # Main fields
+    user_message = fields.Text(
+        string='User Message',
+        required=True
+    )
+    
+    bot_response = fields.Text(
+        string='Bot Response'
+    )
+    
+    # User and session tracking
+    user_id = fields.Many2one(
+        'res.users',
+        string='User',
+        default=lambda self: self.env.user,
+        readonly=True,
+        required=True
+    )
+    
+    session_id = fields.Char(
+        string='Session ID',
+        required=True,
+        index=True
+    )
+    
+    # Configuration
+    config_id = fields.Many2one(
+        'chatbot.config',
+        string='Configuration Used',
+        ondelete='set null'
+    )
+    
+    # Status tracking
     status = fields.Selection([
-        ('draft', 'Brouillon'),
-        ('sent', 'Envoyé'),
-        ('processed', 'Traité'),
-        ('error', 'Erreur')
-    ], string='Statut', default='draft')
+        ('draft', 'Draft'),
+        ('sent', 'Sent'),
+        ('processed', 'Processed'),
+        ('error', 'Error')
+    ], string='Status', default='draft', required=True)
     
-    # Métadonnées
-    response_time = fields.Float(string='Temps de réponse (s)', help='Temps de traitement en secondes')
-    error_message = fields.Text(string='Message d\'erreur')
-    config_used = fields.Many2one('chatbot.config', string='Configuration utilisée')
+    # Performance metrics
+    response_time = fields.Float(
+        string='Response Time (s)',
+        help='Time taken to generate response in seconds'
+    )
     
-    @api.model
-    def _generate_session_id(self):
-        """Générer un ID de session unique"""
-        import uuid
-        return str(uuid.uuid4())[:8]
+    error_message = fields.Text(
+        string='Error Message'
+    )
     
-    @api.depends('user_id', 'session_id')
-    def _compute_conversation_id(self):
-        """Calculer l'ID de conversation basé sur l'utilisateur et la session"""
+    # Usage data
+    usage_data = fields.Text(
+        string='Usage Data',
+        help='JSON data about token usage'
+    )
+    
+    # Computed fields
+    conversation_date = fields.Date(
+        string='Conversation Date',
+        compute='_compute_conversation_date',
+        store=True
+    )
+    
+    @api.depends('create_date')
+    def _compute_conversation_date(self):
+        """Extract date from create_date for grouping."""
         for record in self:
-            if record.user_id and record.session_id:
-                record.conversation_id = f"{record.user_id.login}_{record.session_id}"
+            if record.create_date:
+                record.conversation_date = record.create_date.date()
             else:
-                record.conversation_id = f"unknown_{record.session_id or 'nosession'}"
+                record.conversation_date = fields.Date.today()
     
     @api.model
-    def get_conversation_history(self, limit=10):
-        """Récupérer l'historique de conversation pour l'utilisateur actuel"""
-        return self.search([
-            ('user_id', '=', self.env.user.id)
-        ], limit=limit, order='timestamp desc')
+    def get_conversation_history(self, session_id=None, limit=50):
+        """
+        Get conversation history for current user.
+        
+        Args:
+            session_id: Optional session ID to filter
+            limit: Maximum number of messages
+            
+        Returns:
+            Recordset of messages
+        """
+        domain = [('user_id', '=', self.env.user.id)]
+        if session_id:
+            domain.append(('session_id', '=', session_id))
+        
+        return self.search(domain, limit=limit, order='create_date desc')
     
-    @api.model 
+    @api.model
     def get_user_sessions(self):
-        """Récupérer toutes les sessions de l'utilisateur actuel"""
-        return self.read_group(
+        """Get all unique sessions for current user."""
+        sessions = self.read_group(
             [('user_id', '=', self.env.user.id)],
-            ['conversation_id', 'timestamp:max'],
-            ['conversation_id'],
-            orderby='timestamp desc'
+            ['session_id', 'create_date:max'],
+            ['session_id'],
+            orderby='create_date desc'
         )
+        
+        return [{
+            'session_id': s['session_id'],
+            'last_message': s['create_date'],
+            'message_count': s['session_id_count']
+        } for s in sessions]
+    
+    @api.model
+    def get_statistics(self):
+        """Get usage statistics for current user."""
+        domain = [('user_id', '=', self.env.user.id)]
+        
+        # Basic counts
+        total_messages = self.search_count(domain)
+        processed_messages = self.search_count(
+            domain + [('status', '=', 'processed')]
+        )
+        error_messages = self.search_count(
+            domain + [('status', '=', 'error')]
+        )
+        
+        # Calculate average response time
+        processed_with_time = self.search(
+            domain + [
+                ('status', '=', 'processed'),
+                ('response_time', '>', 0)
+            ]
+        )
+        
+        avg_response_time = 0
+        if processed_with_time:
+            total_time = sum(processed_with_time.mapped('response_time'))
+            avg_response_time = total_time / len(processed_with_time)
+        
+        # Count unique sessions
+        sessions = self.read_group(domain, ['session_id'], ['session_id'])
+        
+        return {
+            'total_messages': total_messages,
+            'processed_messages': processed_messages,
+            'error_messages': error_messages,
+            'avg_response_time': round(avg_response_time, 2),
+            'sessions_count': len(sessions),
+            'success_rate': (
+                round((processed_messages / total_messages) * 100, 1)
+                if total_messages > 0 else 0
+            )
+        }
     
     def action_view_details(self):
-        """Ouvrir la vue détaillée du message"""
+        """Open detailed view of the message."""
+        self.ensure_one()
         return {
             'type': 'ir.actions.act_window',
-            'name': f'💬 Détail: {self.user_input[:50]}...',
-            'res_model': 'chatbot_custom.message',
+            'name': f'Message Details: {self.user_message[:50]}...',
+            'res_model': 'chatbot.message',
             'view_mode': 'form',
             'res_id': self.id,
             'target': 'new',
@@ -76,59 +177,38 @@ class ChatbotMessage(models.Model):
         }
     
     def action_replay_message(self):
-        """Rejouer ce message dans un nouveau wizard chatbot"""
+        """Replay this message in a new chatbot wizard."""
+        self.ensure_one()
+        
+        # Create new wizard with the message
         wizard = self.env['chatbot.wizard'].create({
-            'user_input': self.user_input,
-            'current_session_id': self._generate_session_id()
+            'user_input': self.user_message,
+            'current_session_id': str(uuid.uuid4())[:12]
         })
         
         return {
             'type': 'ir.actions.act_window',
-            'name': '🔄 Rejouer la conversation',
+            'name': 'Replay Conversation',
             'res_model': 'chatbot.wizard',
             'view_mode': 'form',
             'res_id': wizard.id,
             'target': 'new',
             'context': {
-                'default_user_input': self.user_input,
+                'default_user_input': self.user_message,
                 'replay_mode': True
             },
         }
     
-    @api.model
-    def get_statistics(self):
-        """Récupérer des statistiques d'usage"""
-        domain = [('user_id', '=', self.env.user.id)]
-        
-        stats = {
-            'total_messages': self.search_count(domain),
-            'processed_messages': self.search_count(domain + [('status', '=', 'processed')]),
-            'error_messages': self.search_count(domain + [('status', '=', 'error')]),
-            'avg_response_time': 0,
-            'sessions_count': 0
-        }
-        
-        # Calculer le temps de réponse moyen
-        processed_messages = self.search(domain + [('status', '=', 'processed'), ('response_time', '>', 0)])
-        if processed_messages:
-            stats['avg_response_time'] = sum(processed_messages.mapped('response_time')) / len(processed_messages)
-        
-        # Compter les sessions uniques
-        sessions = self.read_group(domain, ['session_id'], ['session_id'])
-        stats['sessions_count'] = len(sessions)
-        
-        return stats
-    
     def name_get(self):
-        """Nom d'affichage personnalisé"""
+        """Custom display name."""
         result = []
         for record in self:
-            # Tronquer le message utilisateur pour l'affichage
-            name = record.user_input[:60]
-            if len(record.user_input) > 60:
+            # Truncate message for display
+            name = record.user_message[:60]
+            if len(record.user_message) > 60:
                 name += "..."
             
-            # Ajouter un indicateur de statut
+            # Add status indicator
             status_icon = {
                 'draft': '📝',
                 'sent': '📤',
@@ -139,4 +219,18 @@ class ChatbotMessage(models.Model):
             name = f"{status_icon} {name}"
             result.append((record.id, name))
         
-        return result 
+        return result
+    
+    @api.model
+    def cleanup_old_messages(self, days=30):
+        """Clean up messages older than specified days."""
+        cutoff_date = fields.Datetime.now() - timedelta(days=days)
+        old_messages = self.search([
+            ('create_date', '<', cutoff_date)
+        ])
+        
+        count = len(old_messages)
+        old_messages.unlink()
+        
+        _logger.info(f"Cleaned up {count} old chatbot messages")
+        return count

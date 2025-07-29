@@ -1,65 +1,378 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Vue formulaire simple -->
+    <!-- Configuration Form View -->
     <record id="view_chatbot_config_form" model="ir.ui.view">
         <field name="name">chatbot.config.form</field>
         <field name="model">chatbot.config</field>
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="test_connection" type="object" string="Test MCP" class="btn-primary"/>
-                    <button name="test_anthropic_direct" type="object" string="Test API" class="btn-secondary"/>
-                    <button name="action_open_chatbot_wizard" type="object" string="Ouvrir Chatbot" class="btn-success"/>
+                    <button name="test_connection" type="object" string="Test de Connexion" class="btn-primary"/>
+                    <button name="connect_mcp_to_odoo" type="object" string="Connecter MCP à Odoo" class="btn-warning" invisible="mcp_connected"/>
+                    <button name="disconnect_mcp_from_odoo" type="object" string="Déconnecter MCP" class="btn-danger" invisible="not mcp_connected"/>
+                    <button name="action_open_chatbot" type="object" string="Ouvrir Chatbot" class="btn-success"/>
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_history" type="object" class="oe_stat_button" icon="fa-history">
+                            <field name="message_count_today" widget="statinfo" string="Messages Aujourd'hui"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Configuration Name"/>
+                        </h1>
+                    </div>
                     <group>
-                        <field name="name"/>
-                        <field name="is_active"/>
-                        <field name="anthropic_model"/>
-                        <field name="anthropic_api_key" password="True"/>
-                        <field name="mcp_url"/>
+                        <group string="API Configuration">
+                            <field name="active" widget="boolean_toggle"/>
+                            <field name="api_key" password="True" groups="base.group_system"/>
+                            <field name="mcp_server_url" placeholder="https://mpc-server-odoo.onrender.com"/>
+                            <field name="model_name"/>
+                        </group>
+                        <group string="Chat Settings">
+                            <field name="temperature" widget="percentage"/>
+                            <field name="max_tokens"/>
+                            <field name="timeout"/>
+                            <field name="daily_message_limit"/>
+                        </group>
                     </group>
-                    <group string="Informations de test">
+                    <group string="MCP Odoo Connection" col="4">
+                        <field name="odoo_url" placeholder="https://mycompany.odoo.com" colspan="2"/>
+                        <field name="odoo_db" placeholder="database_name" colspan="2"/>
+                        <field name="odoo_username" placeholder="admin@mycompany.com" colspan="2"/>
+                        <field name="odoo_password" password="True" colspan="2"/>
+                        <field name="mcp_connected" readonly="1" widget="boolean_toggle" colspan="4"/>
+                    </group>
+                    <group string="System Settings">
+                        <field name="system_prompt_prefix" widget="text" nolabel="1"/>
+                    </group>
+                    <group string="Test Information" col="4">
                         <field name="last_test_date" readonly="1"/>
-                        <field name="last_test_result" readonly="1"/>
+                        <field name="last_test_result" readonly="1" colspan="4"/>
                     </group>
                 </sheet>
             </form>
         </field>
     </record>
 
-    <!-- Vue liste simple -->
+    <!-- Configuration List View -->
     <record id="view_chatbot_config_list" model="ir.ui.view">
         <field name="name">chatbot.config.list</field>
         <field name="model">chatbot.config</field>
         <field name="arch" type="xml">
             <list>
                 <field name="name"/>
-                <field name="anthropic_model"/>
-                <field name="is_active"/>
+                <field name="model_name"/>
+                <field name="active" widget="boolean_toggle"/>
+                <field name="message_count_today"/>
                 <field name="last_test_date"/>
             </list>
         </field>
     </record>
 
-    <!-- Action -->
-    <record id="action_chatbot_config" model="ir.actions.act_window">
-        <field name="name">Configuration Chatbot</field>
-        <field name="res_model">chatbot.config</field>
-        <field name="view_mode">list,form</field>
+    <!-- Message Form View -->
+    <record id="view_chatbot_message_form" model="ir.ui.view">
+        <field name="name">chatbot.message.form</field>
+        <field name="model">chatbot.message</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="status" widget="statusbar" statusbar_visible="draft,sent,processed,error"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Message">
+                            <field name="user_message" widget="text"/>
+                            <field name="bot_response" widget="html"/>
+                        </group>
+                        <group string="Metadata">
+                            <field name="user_id"/>
+                            <field name="session_id"/>
+                            <field name="config_id"/>
+                            <field name="create_date"/>
+                        </group>
+                    </group>
+                    <group string="Performance">
+                        <field name="response_time" widget="float_time"/>
+                        <field name="error_message" widget="text" invisible="status != 'error'"/>
+                        <field name="usage_data" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
     </record>
 
-    <!-- Action Wizard -->
+    <!-- Message List View -->
+    <record id="view_chatbot_message_list" model="ir.ui.view">
+        <field name="name">chatbot.message.list</field>
+        <field name="model">chatbot.message</field>
+        <field name="arch" type="xml">
+            <list default_order="create_date desc">
+                <field name="create_date" string="Date"/>
+                <field name="user_message" string="User"/>
+                <field name="status" widget="badge" decoration-success="status == 'processed'" decoration-danger="status == 'error'"/>
+                <field name="response_time" widget="float_time"/>
+                <field name="user_id"/>
+                <field name="session_id"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Wizard Form View -->
+    <record id="view_chatbot_wizard_form" model="ir.ui.view">
+        <field name="name">chatbot.wizard.form</field>
+        <field name="model">chatbot.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="chatbot-container">
+                        <div class="chatbot-header">
+                            <h2>MCP Assistant</h2>
+                            <div class="chatbot-actions">
+                                <button name="action_toggle_history" type="object" string="History" class="btn-sm"/>
+                                <button name="action_clear_conversation" type="object" string="Clear" class="btn-sm"/>
+                            </div>
+                        </div>
+                        
+                        <group invisible="show_history == False">
+                            <field name="conversation_history" nolabel="1">
+                                <list>
+                                    <field name="create_date" string="Date"/>
+                                    <field name="user_message" string="Message"/>
+                                    <field name="status" widget="badge"/>
+                                    <button name="action_replay_message" type="object" icon="fa-reply" string="Replay"/>
+                                </list>
+                            </field>
+                        </group>
+                        
+                        <div class="chatbot-messages" style="height: 400px; overflow-y: auto; padding: 10px; background: #f5f5f5;">
+                            <field name="bot_response" widget="html" readonly="1" nolabel="1"/>
+                        </div>
+                        
+                        <div class="chatbot-input-container">
+                            <field name="user_input" widget="text" placeholder="Type your message..." nolabel="1"/>
+                            <button name="action_send_message" type="object" string="Send" class="btn-primary"/>
+                        </div>
+                    </div>
+                    
+                    <field name="show_config" invisible="1"/>
+                    <field name="show_history" invisible="1"/>
+                    <field name="config_id" invisible="1"/>
+                    <field name="current_session_id" invisible="1"/>
+                    <field name="previous_user_message" invisible="1"/>
+                </sheet>
+                <footer>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Dashboard View -->
+    <record id="view_chatbot_dashboard" model="ir.ui.view">
+        <field name="name">MCP Assistant Dashboard</field>
+        <field name="model">chatbot.config</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="o_dashboard_container">
+                        <div class="o_dashboard_header">
+                            <h1>MCP Assistant pour Odoo</h1>
+                            <p class="text-muted">Configurez votre assistant IA avec l'intégration native MCP (Model Context Protocol)</p>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5>Configuration Requise</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="alert alert-info" role="alert">
+                                            <strong>Avant de commencer :</strong> Vous devez configurer votre clé API Anthropic et les paramètres de base.
+                                        </div>
+                                        
+                                        <group>
+                                            <group string="API Configuration">
+                                                <field name="api_key" password="True" required="1" placeholder="sk-ant-..." groups="base.group_system"/>
+                                                <field name="model_name" required="1"/>
+                                                <field name="active" widget="boolean_toggle"/>
+                                            </group>
+                                            <group string="Paramètres du Chat">
+                                                <field name="temperature" widget="percentage"/>
+                                                <field name="max_tokens"/>
+                                                <field name="timeout"/>
+                                                <field name="daily_message_limit"/>
+                                            </group>
+                                        </group>
+                                        
+                                        <group string="Configuration MCP - Connexion Odoo" col="4">
+                                            <field name="mcp_server_url" placeholder="https://mpc-server-odoo.onrender.com" colspan="4"/>
+                                            <field name="odoo_url" placeholder="https://mycompany.odoo.com" colspan="2"/>
+                                            <field name="odoo_db" placeholder="database_name" colspan="2"/>
+                                            <field name="odoo_username" placeholder="admin@mycompany.com" colspan="2"/>
+                                            <field name="odoo_password" password="True" colspan="2"/>
+                                            <field name="mcp_connected" readonly="1" widget="boolean_toggle" colspan="4"/>
+                                        </group>
+                                        
+                                        <group string="Instructions Système">
+                                            <field name="system_prompt_prefix" widget="text" 
+                                                   placeholder="Vous êtes un assistant IA intégré à Odoo ERP..."
+                                                   nolabel="1"/>
+                                        </group>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5>Actions Rapides</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="d-grid gap-2">
+                                            <button name="connect_mcp_to_odoo" type="object" 
+                                                    class="btn btn-warning" invisible="mcp_connected">
+                                                <i class="fa fa-plug"/> Connecter MCP à Odoo
+                                            </button>
+                                            <button name="disconnect_mcp_from_odoo" type="object" 
+                                                    class="btn btn-danger" invisible="not mcp_connected">
+                                                <i class="fa fa-unlink"/> Déconnecter MCP
+                                            </button>
+                                            <button name="test_connection" type="object" 
+                                                    class="btn btn-primary">
+                                                <i class="fa fa-check-circle"/> Test de Connexion
+                                            </button>
+                                            <button name="action_open_chatbot" type="object" 
+                                                    class="btn btn-success">
+                                                <i class="fa fa-comments"/> Ouvrir le Chatbot
+                                            </button>
+                                            <button name="action_view_history" type="object" 
+                                                    class="btn btn-info">
+                                                <i class="fa fa-history"/> Voir l'Historique
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card mt-3">
+                                    <div class="card-header">
+                                        <h5>Statistiques</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row text-center">
+                                            <div class="col-6">
+                                                <h4><field name="message_count_today"/></h4>
+                                                <small class="text-muted">Messages aujourd'hui</small>
+                                            </div>
+                                            <div class="col-6">
+                                                <h4><field name="daily_message_limit"/></h4>
+                                                <small class="text-muted">Limite quotidienne</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card mt-3" invisible="not last_test_date">
+                                    <div class="card-header">
+                                        <h5>Dernier Test</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Date:</strong> <field name="last_test_date" readonly="1"/></p>
+                                        <p><strong>Résultat:</strong></p>
+                                        <field name="last_test_result" readonly="1" widget="text"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5>À propos du MCP (Model Context Protocol)</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <p>Le MCP permet à votre assistant IA d'avoir accès à la documentation actualisée et aux outils spécifiques à Odoo.</p>
+                                        <ul>
+                                            <li>Intégration native avec Anthropic Claude</li>
+                                            <li>Contexte Odoo automatique</li>
+                                            <li>Réponses en temps réel</li>
+                                            <li>Historique des conversations</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Actions -->
+    <record id="action_chatbot_dashboard" model="ir.actions.act_window">
+        <field name="name">MCP Assistant - Accueil</field>
+        <field name="res_model">chatbot.config</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_chatbot_dashboard"/>
+        <field name="target">current</field>
+        <field name="context">{'form_view_initial_mode': 'edit', 'default_active': True}</field>
+        <field name="domain">[('active', '=', True)]</field>
+    </record>
+
+    <record id="action_chatbot_config" model="ir.actions.act_window">
+        <field name="name">Configuration Avancée</field>
+        <field name="res_model">chatbot.config</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'default_name': 'MCP Assistant', 'default_model_name': 'claude-3-5-sonnet-20241022', 'default_temperature': 0.7, 'default_max_tokens': 4096, 'default_timeout': 30, 'default_active': True, 'default_system_prompt_prefix': 'Vous êtes un assistant IA intégré à Odoo ERP.', 'default_daily_message_limit': 1000}</field>
+    </record>
+
+    <record id="action_chatbot_messages" model="ir.actions.act_window">
+        <field name="name">Chat History</field>
+        <field name="res_model">chatbot.message</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_user_id': uid}</field>
+    </record>
+
     <record id="action_chatbot_wizard" model="ir.actions.act_window">
-        <field name="name">Chatbot MCP</field>
+        <field name="name">MCP Assistant</field>
         <field name="res_model">chatbot.wizard</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
     </record>
 
-    <!-- Menu -->
-    <menuitem id="menu_chatbot" name="Chatbot MCP" sequence="100"/>
-    <menuitem id="menu_chatbot_config" name="Configuration" parent="menu_chatbot" action="action_chatbot_config" sequence="10"/>
-    <menuitem id="menu_chatbot_wizard" name="Ouvrir Chatbot" parent="menu_chatbot" action="action_chatbot_wizard" sequence="20"/>
+    <!-- Menu Items -->
+    <menuitem id="menu_chatbot_root" 
+              name="MCP Assistant" 
+              sequence="100"
+              web_icon="MCP_Odoo,static/description/icon.png"/>
+    
+    <menuitem id="menu_chatbot_dashboard" 
+              name="Accueil" 
+              parent="menu_chatbot_root" 
+              action="action_chatbot_dashboard" 
+              sequence="5"/>
+    
+    <menuitem id="menu_chatbot_assistant" 
+              name="Ouvrir Assistant" 
+              parent="menu_chatbot_root" 
+              action="action_chatbot_wizard" 
+              sequence="10"/>
+    
+    <menuitem id="menu_chatbot_history" 
+              name="Historique" 
+              parent="menu_chatbot_root" 
+              action="action_chatbot_messages" 
+              sequence="20"/>
+    
+    <menuitem id="menu_chatbot_config" 
+              name="Configuration Avancée" 
+              parent="menu_chatbot_root" 
+              action="action_chatbot_config" 
+              sequence="25"
+              groups="base.group_system"/>
 
-</odoo> 
+
+</odoo>
