@@ -12,8 +12,8 @@
     'data': [
         'security/ir.model.access.csv',
         'views/chatbot_v18.xml',
-        'views/chatbot_messages.xml',
-        'wizard/chatbot_wizard_view.xml',
+        # 'views/chatbot_messages.xml',
+        # 'wizard/chatbot_wizard_view.xml',
     ],
     'assets': {
         'web.assets_backend': [
