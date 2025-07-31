@@ -1,15 +1,15 @@
 /** @odoo-module **/
 
-import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onMounted } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
 
 /**
- * Widget Chatbot MCP avec interface moderne
+ * MCP Chatbot Widget with modern interface
  */
 export class ChatbotWidget extends Component {
-    static template = "chatbot_custom.ChatbotWidget";
+    static template = "MCP_Odoo.ChatbotWidget";
     static components = { Dialog };
 
     setup() {
@@ -33,26 +33,26 @@ export class ChatbotWidget extends Component {
     }
 
     /**
-     * Initialiser la session de chat
+     * Initialize chat session
      */
     async initializeChat() {
         try {
-            // Générer un nouvel ID de session
+            // Generate new session ID
             this.state.currentSessionId = this._generateSessionId();
             
-            // Message de bienvenue
+            // Welcome message
             this._addMessage({
                 type: 'bot',
                 content: `
                     <div class="welcome-message">
-                        <h4>🤖 Assistant MCP Odoo</h4>
-                        <p>Bonjour ! Je suis votre assistant intelligent pour Odoo.</p>
-                        <p><strong>Exemples de commandes :</strong></p>
+                        <h4>MCP Assistant</h4>
+                        <p>Hello! I'm your intelligent assistant for Odoo.</p>
+                        <p><strong>Example commands:</strong></p>
                         <ul>
-                            <li>• "Liste les leads"</li>
-                            <li>• "Statistiques CRM"</li>
-                            <li>• "Recherche commandes"</li>
-                            <li>• "Analyser les devis"</li>
+                            <li>• Search partners</li>
+                            <li>• Show CRM statistics</li>
+                            <li>• List recent orders</li>
+                            <li>• Create new task</li>
                         </ul>
                     </div>
                 `,
@@ -60,31 +60,31 @@ export class ChatbotWidget extends Component {
             });
             
         } catch (error) {
-            console.error("Erreur initialisation chat:", error);
+            console.error("Chat initialization error:", error);
         }
     }
 
     /**
-     * Charger l'historique des conversations
+     * Load conversation history
      */
     async loadConversationHistory() {
         try {
             const history = await this.rpc("/web/dataset/call_kw", {
-                model: "chatbot_custom.message",
+                model: "chatbot.message",
                 method: "get_conversation_history",
-                args: [15], // Derniers 15 messages
-                kwargs: {}
+                args: [],
+                kwargs: { limit: 20 }
             });
             
             this.state.conversationHistory = history || [];
             
         } catch (error) {
-            console.error("Erreur chargement historique:", error);
+            console.error("Error loading history:", error);
         }
     }
 
     /**
-     * Envoyer un message
+     * Send message
      */
     async sendMessage() {
         if (!this.state.userInput.trim() || this.state.isLoading) {
@@ -95,30 +95,18 @@ export class ChatbotWidget extends Component {
         this.state.userInput = "";
         this.state.isLoading = true;
 
-        // Ajouter le message utilisateur
+        // Add user message
         this._addMessage({
             type: 'user',
             content: userMessage,
             timestamp: new Date()
         });
 
-        // Indicateur de frappe
+        // Show typing indicator
         this._addTypingIndicator();
 
         try {
-            // Enregistrer en base
-            const messageRecord = await this.rpc("/web/dataset/call_kw", {
-                model: "chatbot_custom.message",
-                method: "create",
-                args: [{
-                    user_input: userMessage,
-                    session_id: this.state.currentSessionId,
-                    status: 'sent'
-                }],
-                kwargs: {}
-            });
-
-            // Appeler le service chatbot
+            // Call chatbot service
             const startTime = Date.now();
             const response = await this.rpc("/web/dataset/call_kw", {
                 model: "chatbot.wizard",
@@ -129,44 +117,40 @@ export class ChatbotWidget extends Component {
 
             const responseTime = (Date.now() - startTime) / 1000;
 
-            // Supprimer l'indicateur de frappe
+            // Remove typing indicator
             this._removeTypingIndicator();
 
-            // Ajouter la réponse
+            if (response.error) {
+                throw new Error(response.message || "Unknown error");
+            }
+
+            // Add bot response
             this._addMessage({
                 type: 'bot',
-                content: response || "Désolé, je n'ai pas pu traiter votre demande.",
-                timestamp: new Date()
+                content: this._formatResponse(response.message || "No response received."),
+                timestamp: new Date(),
+                responseTime: responseTime
             });
 
-            // Mettre à jour en base
-            await this.rpc("/web/dataset/call_kw", {
-                model: "chatbot_custom.message",
-                method: "write",
-                args: [messageRecord, {
-                    bot_response: response,
-                    status: 'processed',
-                    response_time: responseTime
-                }],
-                kwargs: {}
-            });
-
-            // Recharger l'historique
-            this.loadConversationHistory();
+            // Update history
+            await this.loadConversationHistory();
 
         } catch (error) {
-            console.error("Erreur envoi message:", error);
+            console.error("Message error:", error);
             this._removeTypingIndicator();
             
+            // Show error message
             this._addMessage({
-                type: 'bot',
-                content: `<div class="error-message">❌ Erreur: ${error.message || 'Problème de connexion'}</div>`,
+                type: 'error',
+                content: `<div class="error-message">
+                    <strong>Error:</strong> ${error.message || "Failed to process message"}
+                </div>`,
                 timestamp: new Date()
             });
-
+            
             this.notification.add(
-                _t("Erreur lors de l'envoi du message"),
-                { type: "danger" }
+                _t("Error processing message"),
+                { type: 'danger' }
             );
         } finally {
             this.state.isLoading = false;
@@ -174,50 +158,70 @@ export class ChatbotWidget extends Component {
     }
 
     /**
-     * Ajouter un message à la conversation
+     * Format response with markdown support
+     */
+    _formatResponse(text) {
+        if (!text) return "";
+        
+        // Convert line breaks
+        let formatted = text.replace(/\n/g, '<br/>');
+        
+        // Convert basic markdown
+        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+        formatted = formatted.replace(/`(.*?)`/g, '<code>$1</code>');
+        
+        // Convert lists
+        formatted = formatted.replace(/^• (.*)$/gm, '<li>$1</li>');
+        formatted = formatted.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+        
+        return formatted;
+    }
+
+    /**
+     * Add message to chat
      */
     _addMessage(message) {
         this.state.messages.push({
-            id: Date.now() + Math.random(),
+            id: Date.now(),
             ...message
         });
         
-        // Auto-scroll vers le bas
+        // Scroll to bottom
         this._scrollToBottom();
     }
 
     /**
-     * Ajouter l'indicateur de frappe
+     * Add typing indicator
      */
     _addTypingIndicator() {
         this._addMessage({
-            type: 'bot',
-            content: `
-                <div class="typing-indicator">
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <span style="margin-left: 10px;">Assistant en cours de traitement...</span>
-                </div>
-            `,
-            timestamp: new Date(),
-            isTyping: true
+            type: 'typing',
+            content: '<div class="typing-indicator"><span></span><span></span><span></span></div>',
+            timestamp: new Date()
         });
     }
 
     /**
-     * Supprimer l'indicateur de frappe
+     * Remove typing indicator
      */
     _removeTypingIndicator() {
-        this.state.messages = this.state.messages.filter(msg => !msg.isTyping);
+        this.state.messages = this.state.messages.filter(msg => msg.type !== 'typing');
     }
 
     /**
-     * Faire défiler vers le bas
+     * Generate session ID
+     */
+    _generateSessionId() {
+        return Math.random().toString(36).substring(2, 14);
+    }
+
+    /**
+     * Scroll chat to bottom
      */
     _scrollToBottom() {
         setTimeout(() => {
-            const chatContainer = document.querySelector('.chat-conversation');
+            const chatContainer = document.querySelector('.chatbot-messages');
             if (chatContainer) {
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
@@ -225,65 +229,49 @@ export class ChatbotWidget extends Component {
     }
 
     /**
-     * Effacer la conversation
+     * Hide default modal buttons
+     */
+    hideDefaultButtons() {
+        const modal = this.el.closest('.modal-content');
+        if (modal) {
+            const footer = modal.querySelector('.modal-footer');
+            if (footer) {
+                footer.style.display = 'none';
+            }
+        }
+    }
+
+    /**
+     * Toggle history panel
+     */
+    toggleHistory() {
+        this.state.showHistory = !this.state.showHistory;
+    }
+
+    /**
+     * Load message from history
+     */
+    loadHistoryMessage(message) {
+        this.state.userInput = message.user_message;
+        this.state.showHistory = false;
+    }
+
+    /**
+     * Clear conversation
      */
     clearConversation() {
         this.state.messages = [];
         this.state.currentSessionId = this._generateSessionId();
         this.initializeChat();
+        
+        this.notification.add(
+            _t("Conversation cleared"),
+            { type: 'info' }
+        );
     }
 
     /**
-     * Basculer l'affichage de l'historique
-     */
-    toggleHistory() {
-        this.state.showHistory = !this.state.showHistory;
-        if (this.state.showHistory) {
-            this.loadConversationHistory();
-        }
-    }
-
-    /**
-     * Charger une conversation depuis l'historique
-     */
-    async loadHistoryConversation(messageId) {
-        try {
-            const message = await this.rpc("/web/dataset/call_kw", {
-                model: "chatbot_custom.message",
-                method: "browse",
-                args: [messageId],
-                kwargs: {}
-            });
-
-            if (message && message.length > 0) {
-                this.clearConversation();
-                
-                // Ajouter les messages de l'historique
-                const historyMessage = message[0];
-                this._addMessage({
-                    type: 'user',
-                    content: historyMessage.user_input,
-                    timestamp: new Date(historyMessage.timestamp)
-                });
-
-                if (historyMessage.bot_response) {
-                    this._addMessage({
-                        type: 'bot',
-                        content: historyMessage.bot_response,
-                        timestamp: new Date(historyMessage.timestamp)
-                    });
-                }
-            }
-
-            this.state.showHistory = false;
-            
-        } catch (error) {
-            console.error("Erreur chargement conversation:", error);
-        }
-    }
-
-    /**
-     * Gérer l'appui sur Entrée
+     * Handle Enter key press
      */
     onKeyPress(event) {
         if (event.key === 'Enter' && !event.shiftKey) {
@@ -291,57 +279,4 @@ export class ChatbotWidget extends Component {
             this.sendMessage();
         }
     }
-
-    /**
-     * Mettre à jour l'input utilisateur
-     */
-    onInputChange(event) {
-        this.state.userInput = event.target.value;
-    }
-
-    /**
-     * Générer un ID de session unique
-     */
-    _generateSessionId() {
-        return 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-
-    /**
-     * Formater l'horodatage
-     */
-    formatTimestamp(timestamp) {
-        if (!timestamp) return "";
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString('fr-FR', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-
-    /**
-     * Obtenir la classe CSS pour le message
-     */
-    getMessageClass(messageType) {
-        return `chat-message ${messageType}-message`;
-    }
-
-    /**
-     * Masquer les boutons Save/Discard automatiques d'Odoo
-     */
-    hideDefaultButtons() {
-        // Attendre que la modal soit complètement rendue
-        setTimeout(() => {
-            const modalFooter = document.querySelector('.modal-footer');
-            if (modalFooter) {
-                modalFooter.style.display = 'none';
-            }
-            
-            // Alternative plus spécifique
-            const saveBtn = document.querySelector('button[data-hotkey="s"]');
-            const discardBtn = document.querySelector('button[data-hotkey="j"]');
-            
-            if (saveBtn) saveBtn.style.display = 'none';
-            if (discardBtn) discardBtn.style.display = 'none';
-        }, 100);
-    }
-} 
+}
