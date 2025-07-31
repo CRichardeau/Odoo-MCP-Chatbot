@@ -18,8 +18,7 @@ class ChatbotWizard(models.TransientModel):
     # Main fields
     user_input = fields.Text(
         string='Your Message',
-        required=True,
-        placeholder='Ask your question...'
+        required=True
     )
     
     bot_response = fields.Html(
